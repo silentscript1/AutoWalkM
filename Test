@@ -1,0 +1,2890 @@
+--MARV CRACK BY FIQQZR7
+--gg/Fiqqzr7 Tolol Marv Kontil
+
+-- ==================== LOAD WINDUI ====================
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- ==================== SERVICES ====================
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+local Debris = game:GetService("Debris")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerName = LocalPlayer.Name
+local PlayerDisplayName = LocalPlayer.DisplayName
+local PlayerUserId = LocalPlayer.UserId
+
+-- ==================== AUTH CONFIG ====================
+local auth = {
+    folder = "MARVSCRIPT",
+    subfolder = "auth",
+    filename = "token.dat",
+    base_url = "https://panel.marvscript.my.id",
+    validate_endpoint = "validate.php",
+    getuser_endpoint = "get_user.php"
+}
+
+local token = ""
+local isAuthenticated = false
+local isLoggedIn = false
+local userData = {
+    DisplayName = "",
+    Username = "",
+    Token = "",
+    Role = "",
+    ExpireDate = "",
+    ExpireDays = 0,
+    CreatedAt = "",
+    WhitelistStatus = "",
+    LastUpdated = 0
+}
+
+-- ==================== FILE FUNCTIONS ====================
+local function getTokenPath()
+    return auth.folder .. "/" .. auth.subfolder .. "/" .. auth.filename
+end
+
+local function saveToken(tok)
+    pcall(function()
+        if not isfolder(auth.folder) then makefolder(auth.folder) end
+        local subPath = auth.folder .. "/" .. auth.subfolder
+        if not isfolder(subPath) then makefolder(subPath) end
+        writefile(getTokenPath(), HttpService:JSONEncode({
+            token = tok,
+            username = PlayerName,
+            saved_at = os.time(),
+            version = "1.0"
+        }))
+    end)
+end
+
+local function loadSavedToken()
+    local success, result = pcall(function()
+        if not isfile(getTokenPath()) then return nil end
+        local data = HttpService:JSONDecode(readfile(getTokenPath()))
+        if data.username == PlayerName then return data.token end
+        return nil
+    end)
+    return success and result or nil
+end
+
+local function deleteToken()
+    pcall(function()
+        if isfile(getTokenPath()) then delfile(getTokenPath()) end
+    end)
+end
+
+-- ==================== HTTP REQUEST ====================
+local function httpRequest(url, method, body, headers)
+    method = method or "GET"
+    headers = headers or {}
+    headers["ngrok-skip-browser-warning"] = "true"
+    
+    local requestData = {
+        Url = url,
+        Method = method,
+        Headers = headers
+    }
+    if body then requestData.Body = body end
+    
+    local success, response = pcall(function()
+        return HttpService:RequestAsync(requestData)
+    end)
+    
+    if success and response.Success and response.StatusCode == 200 then
+        return true, response.Body
+    end
+    
+    if success then
+        return false, "HTTP Error: " .. tostring(response.StatusCode)
+    end
+    
+    local getSuccess, getResult = pcall(function()
+        return game:HttpGet(url)
+    end)
+    
+    if getSuccess then
+        return true, getResult
+    end
+    
+    return false, "Request failed"
+end
+
+-- ==================== AUTH FUNCTIONS ====================
+local function formatDate(dateStr)
+    if not dateStr or dateStr == "" then return "N/A" end
+    local parts = {dateStr:match("(%d+)-(%d+)-(%d+)")}
+    if parts[1] then
+        local months = {"Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"}
+        return string.format("%02d %s %s", tonumber(parts[3]), months[tonumber(parts[2])] or "Unknown", parts[1])
+    end
+    return dateStr
+end
+
+local function maskToken(tok)
+    if not tok or tok == "" then return "N/A" end
+    local len = #tok
+    if len <= 8 then return string.rep("*", len) end
+    return tok:sub(1, 4) .. string.rep("*", len - 8) .. tok:sub(-4)
+end
+
+local function maskDisplay(str)
+    if not str or str == "" then return "*****" end
+    local len = #str
+    if len <= 5 then return str:sub(1, 1) .. string.rep("*", len - 1) end
+    return str:sub(1, 2) .. string.rep("*", len - 5) .. str:sub(-2)
+end
+
+local function formatExpiry(days)
+    if days <= 0 then return "Expired" end
+    if days == 1 then return "1 Day" end
+    return days .. " Days"
+end
+
+local function validateToken(tok)
+    if not tok or tok == "" then return false, "Token tidak boleh kosong!" end
+    
+    local url = auth.base_url .. "/" .. auth.validate_endpoint .. 
+                "?token=" .. HttpService:UrlEncode(tok) .. 
+                "&roblox_username=" .. HttpService:UrlEncode(PlayerName)
+    
+    local success, response = httpRequest(url, "GET")
+    if not success then return false, "Connection error: " .. tostring(response) end
+    
+    local decodeSuccess, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not decodeSuccess then return false, "Invalid server response" end
+    if type(data) ~= "table" then return false, "Invalid response structure" end
+    
+    if tostring(data.status or ""):lower() == "success" then
+        return true, data
+    end
+    return false, tostring(data.message or "Authentication failed")
+end
+
+local function getUserInfo(tok)
+    if not tok or tok == "" then return false, "Token tidak boleh kosong!" end
+    
+    local url = auth.base_url .. "/" .. auth.getuser_endpoint .. "?token=" .. HttpService:UrlEncode(tok)
+    local success, response = httpRequest(url, "GET")
+    if not success then return false, "Connection error: " .. tostring(response) end
+    
+    local decodeSuccess, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not decodeSuccess then return false, "Invalid response format" end
+    if type(data) ~= "table" then return false, "Invalid response structure" end
+    
+    if tostring(data.status or ""):lower() == "success" then
+        return true, data
+    end
+    return false, tostring(data.message or "Failed to get user info")
+end
+
+local function updateUserData(data)
+    if type(data) == "table" then
+        userData.DisplayName = LocalPlayer.DisplayName or LocalPlayer.Name
+        userData.Username = data.name or PlayerName
+        userData.Token = getgenv().UserToken or ""
+        userData.Role = data.role or "Member"
+        userData.ExpireDate = data.expire_date or ""
+        userData.ExpireDays = data.expire_days or 0
+        userData.CreatedAt = data.created_at or ""
+        userData.WhitelistStatus = data.whitelist_status or "unknown"
+        userData.LastUpdated = os.time()
+    end
+end
+
+-- ==================== CREATE MAIN WINDOW ====================
+local Window = WindUI:CreateWindow({
+    Title = "MarV Script | https://marvscript.my.id",
+    Icon = "rbxassetid://139611780842600",
+    Author = "Join Discord: https://marvscript.my.id",
+    Size = UDim2.fromOffset(700, 600),
+    Transparent = true,
+    Theme = "Midnight",
+    Resizable = true,
+    SideBarWidth = 180,
+    BackgroundImageTransparency = 0.42,
+    HideSearchBar = true,
+    ScrollBarEnabled = false,
+    Background = "rbxassetid://139611780842600",
+    User = {
+        Enabled = true,
+        Anonymous = true
+    }
+})
+
+Window:SetBackgroundImage("rbxassetid://139611780842600")
+Window:SetBackgroundImageTransparency(0.9)
+Window:EditOpenButton({
+    Title = "https://marvscript.my.id",
+    Icon = "monitor",
+    CornerRadius = UDim.new(0, 16),
+    StrokeThickness = 2,
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("FF0F7B")),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("F89B29"))
+    }),
+    StrokeColor = Color3.fromRGB(255, 255, 255),
+    StrokeTransparency = 0.2,
+    OnlyMobile = false,
+    Enabled = true,
+    Draggable = true,
+    Shadow = true,
+    ShadowTransparency = 0.35,
+    ShadowColor = Color3.fromRGB(20, 20, 20)
+})
+Window:SetToggleKey(Enum.KeyCode.M)
+
+-- ==================== GLOBAL VARIABLES ====================
+local currentCharacter = nil
+local currentHumanoid = nil
+local currentRootPart = nil
+local autoWalkActive = false
+local autoWalkPaused = false
+local autoWalkFlipped = false
+local autoWalkSpeed = 1.0
+local autoWalkLoop = false
+local autoRespawn = false
+local godMode = false
+local currentTrack = nil
+local currentTrackFolder = nil
+local currentTrackUrl = nil
+local currentTrackFiles = {}
+local checkpointData = {}
+local walkConnection = nil
+local currentCheckpointIndex = 1
+local lastFootstepTime = 0
+local stepSoundCooldown = 0.35
+
+-- Track database
+local tracks = {
+    ["Mount Velora"] = {
+        url = "https://raw.githubusercontent.com/SyhrlmyZID/track/refs/heads/main/mount_velora/",
+        folder = "json_velora",
+        checkpointCount = 51,
+        prefix = "VELORA",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Gemi"] = {
+        url = "https://raw.githubusercontent.com/ayizxmarv-rgb/Trek/refs/heads/main/Mount_Gemi/",
+        folder = "json_gemi",
+        checkpointCount = 50,
+        prefix = "GEMI",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Yagesya"] = {
+        url = "https://raw.githubusercontent.com/ayizxmarv-rgb/Trek/refs/heads/main/Mount_Yagesya/",
+        folder = "json_yagesya",
+        checkpointCount = 5,
+        prefix = "YAGESYA",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Sadewa"] = {
+        url = "https://raw.githubusercontent.com/ayizxmarv-rgb/Trek/refs/heads/main/Sadewa_City/",
+        folder = "json_sadewa",
+        checkpointCount = 1,
+        prefix = "SADEWA",
+        spawnpoint = false,
+        specialCheckpoints = {}
+    },
+    ["Mount Chillax"] = {
+        url = "https://raw.githubusercontent.com/ayizxmarv-rgb/Trek/refs/heads/main/Mount_Chillax/",
+        folder = "json_chillax",
+        checkpointCount = 5,
+        prefix = "CHILLAX",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Funny"] = {
+        url = "https://raw.githubusercontent.com/ayizxmarv-rgb/Trek/refs/heads/main/Mount_funny/",
+        folder = "json_funny",
+        checkpointCount = 6,
+        prefix = "FUNNY",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Yahayuk WSAD"] = {
+        url = "https://raw.githubusercontent.com/imamabdurrahmannn/TheChosenOne/refs/heads/main/marvY/trackY/",
+        folder = "json_yahyukwsad",
+        checkpointCount = 5,
+        prefix = "YAHAYUK WASD",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Runia"] = {
+        url = "https://raw.githubusercontent.com/itwasabraham/UniversalGunung/refs/heads/main/trekkk/runia/checkpoint_2.json",
+        folder = "json_runia",
+        checkpointCount = 10,
+        prefix = "RUNIA",
+        spawnpoint = true,
+        specialCheckpoints = {}
+    },
+    ["Mount Sibuatan"] = {
+        url = "https://raw.githubusercontent.com/SyhrlmyZID/track/refs/heads/main/mount_sibuatan/",
+        folder = "json_sibuatan",
+        checkpointCount = 45,
+        prefix = "SIBUATAN",
+        spawnpoint = true,
+        specialCheckpoints = {
+            {position = 28, file = "water_checkpoint.json", title = "WATER CP"}
+        }
+    }
+}
+
+-- ==================== HELPER FUNCTIONS ====================
+local function updateCharacter()
+    currentCharacter = LocalPlayer.Character
+    if currentCharacter then
+        currentHumanoid = currentCharacter:FindFirstChild("Humanoid")
+        currentRootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+    end
+end
+
+local function playFootstepSound()
+    if not currentRootPart then return end
+    
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {currentCharacter}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local rayResult = Workspace:Raycast(currentRootPart.Position, Vector3.new(0, -5, 0), rayParams)
+    if rayResult then
+        local soundId = "rbxasset://sounds/action_footsteps_plastic.mp3"
+        local material = rayResult.Material
+        
+        if material == Enum.Material.Grass then
+            soundId = "rbxassetid://9118823107"
+        elseif material == Enum.Material.Metal then
+            soundId = "rbxassetid://260433111"
+        elseif material == Enum.Material.Sand then
+            soundId = "rbxassetid://9120089994"
+        elseif material == Enum.Material.Wood then
+            soundId = "rbxassetid://9118828605"
+        end
+        
+        local sound = Instance.new("Sound")
+        sound.SoundId = soundId
+        sound.Volume = 0.8
+        sound.RollOffMaxDistance = 100
+        sound.RollOffMinDistance = 10
+        sound.Parent = currentRootPart
+        sound:Play()
+        Debris:AddItem(sound, 1)
+    end
+end
+
+local function onWalk()
+    if not currentHumanoid or not currentRootPart then return end
+    
+    local moveDirection = currentHumanoid.MoveDirection
+    local speed = Vector3.new(moveDirection.X, 0, moveDirection.Z).Magnitude
+    local isRunning = currentHumanoid:GetState() == Enum.HumanoidStateType.Running or 
+                      currentHumanoid:GetState() == Enum.HumanoidStateType.RunningNoPhysics or
+                      currentHumanoid:GetState() == Enum.HumanoidStateType.Landed
+    
+    if speed > 0.5 and isRunning then
+        local now = tick()
+        if now - lastFootstepTime >= stepSoundCooldown / (math.clamp(speed / 16, 0.3, 2) * autoWalkSpeed) then
+            playFootstepSound()
+            lastFootstepTime = now
+        end
+    end
+end
+
+-- ==================== AUTO WALK CORE ====================
+local function ensureJsonFile(filename)
+    local filePath = currentTrackFolder .. "/" .. filename
+    if isfile(filePath) then return true, filePath end
+    
+    local success, content = pcall(function()
+        return game:HttpGet(currentTrackUrl .. filename)
+    end)
+    
+    if success and content and #content > 0 then
+        writefile(filePath, content)
+        return true, filePath
+    end
+    return false, nil
+end
+
+local function loadCheckpointData(filename)
+    local success, filePath = ensureJsonFile(filename)
+    if not success then return nil end
+    
+    local decodeSuccess, data = pcall(function()
+        return HttpService:JSONDecode(readfile(filePath))
+    end)
+    
+    if decodeSuccess and data and #data > 0 then
+        return data
+    end
+    return nil
+end
+
+local function interpolatePosition(pos1, pos2, t)
+    return pos1 + (pos2 - pos1) * t
+end
+
+local function interpolateRotation(rot1, rot2, t)
+    local diff = rot2 - rot1
+    while diff > math.pi do diff = diff - 2 * math.pi end
+    while diff < -math.pi do diff = diff + 2 * math.pi end
+    return rot1 + diff * t
+end
+
+local function stopAutoWalk(resetUI)
+    if walkConnection then
+        walkConnection:Disconnect()
+        walkConnection = nil
+    end
+    
+    if currentRootPart then
+        currentRootPart.Anchored = false
+    end
+    
+    if currentHumanoid then
+        currentHumanoid:Move(Vector3.zero, false)
+        currentHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+    
+    autoWalkActive = false
+    autoWalkPaused = false
+end
+
+local function startAutoWalk(checkpointData, onComplete)
+    if not checkpointData or #checkpointData == 0 then
+        if onComplete then onComplete() end
+        return
+    end
+    
+    if autoWalkActive then stopAutoWalk(false) end
+    
+    if currentRootPart and currentHumanoid then
+        local firstPos = checkpointData[1].position
+        local pos = Vector3.new(firstPos.x, firstPos.y + (checkpointData[1].hipHeight or 2), firstPos.z)
+        currentRootPart.CFrame = CFrame.new(pos) * CFrame.Angles(0, checkpointData[1].rotation or 0, 0)
+        currentRootPart.AssemblyLinearVelocity = Vector3.zero
+        currentRootPart.AssemblyAngularVelocity = Vector3.zero
+    end
+    
+    autoWalkActive = true
+    autoWalkPaused = false
+    
+    local currentTime = 0
+    local lastTime = tick()
+    local currentCpIndex = 1
+    local isFirstRun = true
+    local targetRotation = 0
+    
+    walkConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not autoWalkActive or autoWalkPaused then return end
+        if not currentCharacter or not currentRootPart or not currentHumanoid then
+            updateCharacter()
+            if not currentCharacter then return end
+        end
+        
+        local now = tick()
+        local dt = math.min(now - lastTime, 0.1) * autoWalkSpeed
+        lastTime = now
+        
+        if autoWalkFlipped then
+            currentTime = currentTime - dt
+        else
+            currentTime = currentTime + dt
+        end
+        
+        local totalTime = checkpointData[#checkpointData].time
+        if currentTime > totalTime then
+            if autoWalkLoop then
+                if autoRespawn and currentHumanoid then
+                    currentHumanoid.Health = 0
+                    task.wait(1)
+                    updateCharacter()
+                end
+                currentTime = checkpointData[1].time
+                currentCpIndex = 1
+                isFirstRun = true
+            else
+                stopAutoWalk(true)
+                if onComplete then onComplete() end
+                return
+            end
+        elseif currentTime < checkpointData[1].time then
+            if autoWalkLoop then
+                currentTime = checkpointData[#checkpointData].time
+                currentCpIndex = #checkpointData - 1
+            else
+                stopAutoWalk(true)
+                if onComplete then onComplete() end
+                return
+            end
+        end
+        
+        while currentCpIndex < #checkpointData and checkpointData[currentCpIndex + 1].time < currentTime do
+            currentCpIndex = currentCpIndex + 1
+        end
+        while currentCpIndex > 1 and checkpointData[currentCpIndex - 1].time > currentTime do
+            currentCpIndex = currentCpIndex - 1
+        end
+        
+        local cp1 = checkpointData[currentCpIndex]
+        local cp2 = checkpointData[currentCpIndex + 1] or cp1
+        
+        local t = (cp1.time == cp2.time) and 0 or (currentTime - cp1.time) / (cp2.time - cp1.time)
+        t = math.clamp(t, 0, 1)
+        
+        local pos1 = Vector3.new(cp1.position.x, cp1.position.y, cp1.position.z)
+        local pos2 = Vector3.new(cp2.position.x, cp2.position.y, cp2.position.z)
+        local currentPos = interpolatePosition(pos1, pos2, t)
+        currentPos = Vector3.new(currentPos.X, currentPos.Y + (cp1.hipHeight or 2), currentPos.Z)
+        
+        local vel1 = cp1.velocity or Vector3.zero
+        local vel2 = cp2.velocity or Vector3.zero
+        local currentVel = interpolatePosition(vel1, vel2, t)
+        
+        local rot1 = cp1.rotation or 0
+        local rot2 = cp2.rotation or 0
+        local currentRot = interpolateRotation(rot1, rot2, t)
+        
+        local targetCFrame = CFrame.new(currentPos) * CFrame.Angles(0, currentRot, 0)
+        
+        if autoWalkFlipped then
+            targetCFrame = targetCFrame * CFrame.Angles(0, math.pi, 0)
+        end
+        
+        local lerpSpeed = math.clamp(1 - math.exp(-12 * dt), 0, 1)
+        currentRootPart.CFrame = currentRootPart.CFrame:Lerp(targetCFrame, lerpSpeed)
+        
+        pcall(function()
+            currentRootPart.AssemblyLinearVelocity = currentVel
+        end)
+        
+        if currentHumanoid then
+            currentHumanoid:Move(currentVel, false)
+            
+            local isJumping = (cp1.jumping or cp2.jumping) or false
+            if isJumping and not autoWalkPaused then
+                currentHumanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end
+        
+        onWalk()
+    end)
+end
+
+-- ==================== CHECKPOINT FUNCTIONS ====================
+local function generateCheckpointList(track)
+    local files = {}
+    if track.spawnpoint then
+        table.insert(files, "spawnpoint.json")
+    end
+    
+    local specials = track.specialCheckpoints or {}
+    table.sort(specials, function(a, b) return a.position < b.position end)
+    
+    for i = 1, track.checkpointCount do
+        local specialIndex = 1
+        while specialIndex <= #specials and specials[specialIndex].position < i do
+            specialIndex = specialIndex + 1
+        end
+        
+        if specialIndex <= #specials and specials[specialIndex].position == i then
+            table.insert(files, specials[specialIndex].file)
+        end
+        table.insert(files, string.format("checkpoint_%d.json", i))
+    end
+    
+    return files
+end
+
+local function setupTrack(trackName)
+    local track = tracks[trackName]
+    if not track then return end
+    
+    local trackFolder = auth.folder .. "/" .. track.folder
+    if not isfolder(trackFolder) then
+        makefolder(trackFolder)
+        WindUI:Notify({
+            Title = "Track Setup",
+            Content = "Folder " .. track.folder .. " dibuat!",
+            Duration = 2,
+            Icon = "folder-plus"
+        })
+    end
+    
+    local files = generateCheckpointList(track)
+    local missingFiles = {}
+    
+    for _, file in ipairs(files) do
+        if not isfile(trackFolder .. "/" .. file) then
+            table.insert(missingFiles, file)
+        end
+    end
+    
+    if #missingFiles > 0 then
+        WindUI:Notify({
+            Title = "Auto Download",
+            Content = "Mendeteksi " .. #missingFiles .. " file belum ada. Memulai download...",
+            Duration = 3,
+            Icon = "download"
+        })
+        
+        task.spawn(function()
+            local successCount = 0
+            local failCount = 0
+            
+            for i, file in ipairs(missingFiles) do
+                local success, content = pcall(function()
+                    return game:HttpGet(track.url .. file)
+                end)
+                
+                if success and content and #content > 0 then
+                    writefile(trackFolder .. "/" .. file, content)
+                    successCount = successCount + 1
+                else
+                    failCount = failCount + 1
+                end
+                
+                if i % 5 == 0 or i == #missingFiles then
+                    WindUI:Notify({
+                        Title = "Downloading",
+                        Content = string.format("Progress: %d/%d", i, #missingFiles),
+                        Duration = 1.5,
+                        Icon = "download"
+                    })
+                end
+                task.wait(0.3)
+            end
+            
+            WindUI:Notify({
+                Title = "Download Selesai",
+                Content = string.format("Berhasil: %d | Gagal: %d", successCount, failCount),
+                Duration = 4,
+                Icon = "check-check"
+            })
+        end)
+    else
+        WindUI:Notify({
+            Title = "Track Ready",
+            Content = "Semua checkpoint sudah tersedia!",
+            Duration = 2,
+            Icon = "circle-check"
+        })
+    end
+    
+    return files
+end
+
+local function loadTrack(trackName)
+    local track = tracks[trackName]
+    if not track then return end
+    
+    currentTrack = trackName
+    currentTrackFolder = auth.folder .. "/" .. track.folder
+    currentTrackUrl = track.url
+    currentTrackFiles = generateCheckpointList(track)
+    
+    getgenv().AutoWalk_CurrentTrack = currentTrack
+    getgenv().AutoWalk_CurrentJsonFolder = currentTrackFolder
+    getgenv().AutoWalk_CurrentBaseURL = currentTrackUrl
+    getgenv().AutoWalk_CurrentJsonFiles = currentTrackFiles
+    
+    local cpIndex = 1
+    
+    if track.spawnpoint then
+        -- Spawnpoint toggle would be created here
+        cpIndex = cpIndex + 1
+    end
+    
+    for i = 1, track.checkpointCount do
+        -- Checkpoint toggle would be created here
+        cpIndex = cpIndex + 1
+    end
+    
+    WindUI:Notify({
+        Title = "Track Loaded",
+        Content = string.format("%s berhasil dimuat!\n%d checkpoint", trackName, track.checkpointCount),
+        Duration = 4,
+        Icon = "map"
+    })
+end
+
+-- ==================== GOD MODE ====================
+local godModeConnection = nil
+local godModeActive = false
+
+local function enableGodMode()
+    if godModeConnection then return end
+    
+    godModeActive = true
+    
+    local function applyGodMode()
+        if not godModeActive then return end
+        if currentHumanoid then
+            currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            currentHumanoid.BreakJointsOnDeath = false
+            if currentHumanoid.Health < currentHumanoid.MaxHealth then
+                currentHumanoid.Health = currentHumanoid.MaxHealth
+            end
+        end
+    end
+    
+    local characterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait()
+        updateCharacter()
+        applyGodMode()
+    end)
+    
+    godModeConnection = RunService.Heartbeat:Connect(applyGodMode)
+    applyGodMode()
+end
+
+local function disableGodMode()
+    godModeActive = false
+    if godModeConnection then
+        godModeConnection:Disconnect()
+        godModeConnection = nil
+    end
+    if currentHumanoid then
+        currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+        currentHumanoid.BreakJointsOnDeath = true
+    end
+end
+
+-- ==================== PAUSE/FLIP UI ====================
+local pauseFlipUI = nil
+
+local function createPauseFlipUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "PauseFlipUI"
+    screenGui.IgnoreGuiInset = true
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = CoreGui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "PF_Background"
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainFrame.Position = UDim2.new(0.5, 0, 0.82, 0)
+    mainFrame.Size = UDim2.new(0, 230, 0, 70)
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(200, 30, 30)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    local dragBar = Instance.new("Frame")
+    dragBar.Name = "DragBar"
+    dragBar.Size = UDim2.new(0.7, 0, 0, 7)
+    dragBar.Position = UDim2.new(0.15, 0, 1, 6)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+    dragBar.BorderSizePixel = 0
+    dragBar.Parent = mainFrame
+    
+    local dragCorner = Instance.new("UICorner")
+    dragCorner.CornerRadius = UDim.new(1, 0)
+    dragCorner.Parent = dragBar
+    
+    local dragStroke = Instance.new("UIStroke")
+    dragStroke.Color = Color3.fromRGB(200, 30, 30)
+    dragStroke.Thickness = 1
+    dragStroke.Parent = dragBar
+    
+    local container = Instance.new("Frame")
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(1, -20, 1, -20)
+    container.Position = UDim2.new(0, 10, 0, 10)
+    container.Parent = mainFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Horizontal
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Center
+    layout.Padding = UDim.new(0, 12)
+    layout.Parent = container
+    
+    local function createButton(text)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 95, 0, 42)
+        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 14
+        btn.AutoButtonColor = false
+        btn.BorderSizePixel = 0
+        btn.Parent = container
+        
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 8)
+        btnCorner.Parent = btn
+        
+        local btnStroke = Instance.new("UIStroke")
+        btnStroke.Color = Color3.fromRGB(200, 30, 30)
+        btnStroke.Thickness = 1.5
+        btnStroke.Parent = btn
+        
+        btn.MouseEnter:Connect(function()
+            btn.BackgroundColor3 = Color3.fromRGB(55, 55, 60)
+        end)
+        
+        btn.MouseLeave:Connect(function()
+            if btn.BackgroundColor3 ~= Color3.fromRGB(200, 30, 30) then
+                btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            end
+        end)
+        
+        return btn
+    end
+    
+    local pauseBtn = createButton("PAUSE")
+    local flipBtn = createButton("FLIP")
+    
+    pauseBtn.MouseButton1Click:Connect(function()
+        if not autoWalkActive then
+            WindUI:Notify({
+                Title = "Auto Walk",
+                Content = "Tidak ada auto walk yang sedang berjalan!",
+                Duration = 3
+            })
+            return
+        end
+        
+        autoWalkPaused = not autoWalkPaused
+        
+        if autoWalkPaused then
+            pauseBtn.Text = "RESUME"
+            pauseBtn.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+            WindUI:Notify({
+                Title = "Auto Walk",
+                Content = "Auto walk di-pause.",
+                Duration = 2,
+                Icon = "pause"
+            })
+        else
+            pauseBtn.Text = "PAUSE"
+            pauseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            WindUI:Notify({
+                Title = "Auto Walk",
+                Content = "Auto walk di-resume.",
+                Duration = 2
+            })
+        end
+    end)
+    
+    flipBtn.MouseButton1Click:Connect(function()
+        if not autoWalkActive then
+            WindUI:Notify({
+                Title = "FLIP",
+                Content = "Auto walk harus berjalan terlebih dahulu!",
+                Duration = 3
+            })
+            return
+        end
+        
+        autoWalkFlipped = not autoWalkFlipped
+        
+        if autoWalkFlipped then
+            flipBtn.Text = "UNFLIP"
+            flipBtn.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+            WindUI:Notify({
+                Title = "FLIP",
+                Content = "Arah dibalik (reverse mode ON)",
+                Duration = 2,
+                Icon = "rotate-cw"
+            })
+        else
+            flipBtn.Text = "FLIP"
+            flipBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            WindUI:Notify({
+                Title = "FLIP",
+                Content = "Arah kembali normal",
+                Duration = 2,
+                Icon = "rotate-ccw"
+            })
+        end
+    end)
+    
+    return {
+        mainFrame = mainFrame,
+        showUI = function()
+            mainFrame.Visible = true
+            mainFrame.Size = UDim2.new(0, 0, 0, 0)
+            local tween = TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, 230, 0, 70)
+            })
+            tween:Play()
+        end,
+        hideUI = function()
+            local tween = TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+                Size = UDim2.new(0, 0, 0, 0)
+            })
+            tween:Play()
+            task.delay(0.25, function()
+                mainFrame.Visible = false
+            end)
+        end,
+        resetUIState = function()
+            autoWalkPaused = false
+            autoWalkFlipped = false
+            pauseBtn.Text = "PAUSE"
+            flipBtn.Text = "FLIP"
+            pauseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+            flipBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+        end
+    }
+end
+
+pauseFlipUI = createPauseFlipUI()
+
+-- ==================== CHARACTER HANDLER ====================
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    currentCharacter = char
+    currentHumanoid = char:FindFirstChild("Humanoid")
+    currentRootPart = char:FindFirstChild("HumanoidRootPart")
+    
+    if autoWalkActive then
+        stopAutoWalk(true)
+    end
+end)
+
+updateCharacter()
+
+-- ==================== AUTO WALK TAB ====================
+local AutoWalkTab = nil
+local trackDropdown = nil
+
+local function setupAutoWalkTab()
+    AutoWalkTab = Window:Tab({
+        Title = "Auto Walk",
+        Icon = "bot"
+    })
+    
+    AutoWalkTab:Section({
+        Title = "MarV Script | Auto Walk",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    AutoWalkTab:Divider()
+    
+    AutoWalkTab:Toggle({
+        Title = "Enable Loop",
+        Desc = "Berfungsi menjalankan autowalk secara berulang ulang.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            autoWalkLoop = state
+            if state then
+                WindUI:Notify({
+                    Title = "Looping",
+                    Content = "Berhasil diaktifkan! Pilih checkpoint untuk memulai loop.",
+                    Duration = 3,
+                    Icon = "repeat"
+                })
+            else
+                WindUI:Notify({
+                    Title = "Looping",
+                    Content = "Berhasil dimatikan!",
+                    Duration = 3,
+                    Icon = "x"
+                })
+                if autoWalkActive then
+                    stopAutoWalk(true)
+                end
+            end
+        end
+    })
+    
+    AutoWalkTab:Toggle({
+        Title = "Auto Respawn",
+        Desc = "Respawn otomatis ketika mencapai checkpoint terakhir (jika Loop aktif).",
+        Icon = "check",
+        Value = false,
+        Type = "Checkbox",
+        Callback = function(state)
+            autoRespawn = state
+            if state then
+                WindUI:Notify({
+                    Title = "Auto Respawn",
+                    Content = "Fitur Auto Respawn diaktifkan!",
+                    Duration = 3,
+                    Icon = "check"
+                })
+            else
+                WindUI:Notify({
+                    Title = "Auto Respawn",
+                    Content = "Fitur Auto Respawn dimatikan.",
+                    Duration = 3,
+                    Icon = "x"
+                })
+            end
+        end
+    })
+    
+    AutoWalkTab:Toggle({
+        Title = "Enable God Mode",
+        Desc = "Berfungsi agar karakter kita tidak bisa terkena damage / mati.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            if state then
+                enableGodMode()
+                WindUI:Notify({
+                    Title = "God Mode",
+                    Content = "God Mode diaktifkan!",
+                    Duration = 3,
+                    Icon = "shield"
+                })
+            else
+                disableGodMode()
+                WindUI:Notify({
+                    Title = "God Mode",
+                    Content = "God Mode dimatikan.",
+                    Duration = 3,
+                    Icon = "shield"
+                })
+            end
+        end
+    })
+    
+    AutoWalkTab:Slider({
+        Title = "Speed Auto Walk",
+        Desc = "Berfungsi mengatur kecepatan auto walk.",
+        Step = 0.1,
+        Value = {
+            Min = 0.5,
+            Max = 1.3,
+            Default = 1
+        },
+        Callback = function(value)
+            autoWalkSpeed = value
+            WindUI:Notify({
+                Title = "Speed",
+                Content = string.format("Speed diatur ke %.1fx", value),
+                Duration = 2,
+                Icon = "gauge"
+            })
+        end
+    })
+    
+    AutoWalkTab:Divider()
+    
+    AutoWalkTab:Section({
+        Title = "Auto Walk | Menu",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    
+    local trackNames = {}
+    for name in pairs(tracks) do
+        table.insert(trackNames, name)
+    end
+    table.sort(trackNames)
+    
+    trackDropdown = AutoWalkTab:Dropdown({
+        Title = "◉ SELECT TRACK",
+        Values = trackNames,
+        Multi = false,
+        AllowNone = true,
+        SearchBarEnabled = true,
+        Callback = function(selected)
+            if selected and selected ~= "" then
+                WindUI:Notify({
+                    Title = "Loading Track",
+                    Content = "Memuat " .. selected .. "...",
+                    Duration = 2,
+                    Icon = "loader"
+                })
+                setupTrack(selected)
+                task.wait(0.5)
+                loadTrack(selected)
+            else
+                -- Clear current track
+                currentTrack = nil
+                currentTrackFolder = nil
+                currentTrackUrl = nil
+                currentTrackFiles = {}
+                getgenv().AutoWalk_CurrentTrack = nil
+                getgenv().AutoWalk_CurrentJsonFolder = nil
+                getgenv().AutoWalk_CurrentBaseURL = nil
+                getgenv().AutoWalk_CurrentJsonFiles = nil
+            end
+        end
+    })
+    
+    AutoWalkTab:Divider()
+    
+    AutoWalkTab:Toggle({
+        Title = "◉ Pause/Flip Menu",
+        Desc = "Berfungsi untuk menampilkan gui pause auto walk.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            if state then
+                pauseFlipUI.showUI()
+                WindUI:Notify({
+                    Title = "Pause/Flip Menu",
+                    Content = "Menu ditampilkan!",
+                    Duration = 2,
+                    Icon = "bot"
+                })
+            else
+                pauseFlipUI.hideUI()
+                WindUI:Notify({
+                    Title = "Pause/Flip Menu",
+                    Content = "Menu disembunyikan!",
+                    Duration = 2,
+                    Icon = "bot"
+                })
+            end
+        end
+    })
+    
+    AutoWalkTab:Divider()
+end
+
+-- ==================== OTHER SCRIPTS TAB ====================
+local function setupOtherScriptsTab()
+    local OtherScriptsTab = Window:Tab({
+        Title = "Other Script",
+        Icon = "gamepad-2"
+    })
+    
+    local scriptsSection = OtherScriptsTab:Section({
+        Title = "Other Auto Walk Prem Free | Tidak Di Perjual Belikan",
+        Icon = "flame",
+        Opened = false
+    })
+    
+    scriptsSection:Button({
+        Title = "MarV CP Marker (Teleport)",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/AtinWhitelist/refs/heads/main/tiriskan"))()
+        end
+    })
+    
+    scriptsSection:Button({
+        Title = "MarV Other Script",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://pastefy.app/lQOpacDU/raw"))()
+        end
+    })
+    
+    scriptsSection:Button({
+        Title = "Fyy Premium Auto Walk",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/MT_LOADER.txt"))()
+        end
+    })
+    
+    scriptsSection:Button({
+        Title = "David Premium Auto Walk",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://pastefy.app/6LufDiXp/raw"))()
+        end
+    })
+    
+    scriptsSection:Button({
+        Title = "Tarzz Auto Walk",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://pastefy.app/OCrIDnMV/raw"))()
+        end
+    })
+    
+    scriptsSection:Button({
+        Title = "WataX Auto Walk",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://pastefy.app/6qnMhVmj/raw"))()
+        end
+    })
+    
+    -- Fish It Scripts
+    local fishSection = OtherScriptsTab:Section({
+        Title = "Fish It Script Prem Free | Tidak Di Perjual Belikan",
+        Icon = "fish",
+        Opened = false
+    })
+    
+    fishSection:Button({
+        Title = "VinZ Hub Premium Fish It",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/VinPREMFish"))()
+        end
+    })
+    
+    fishSection:Button({
+        Title = "Glua Premium Fish It",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/GLUAPremFishIt.txt"))()
+        end
+    })
+    
+    fishSection:Button({
+        Title = "Souls Hub Premium Fish It",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/SoulsHubFishIt.txt"))()
+        end
+    })
+    
+    fishSection:Button({
+        Title = "Rock Hub Premium Fish It",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/RockH/FishitRock"))()
+        end
+    })
+    
+    fishSection:Button({
+        Title = "Fyy Premium Fish It",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/FISHIT%20LOADER.txt"))()
+        end
+    })
+    
+    fishSection:Button({
+        Title = "717 Prem Fish it",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/717skillissue/717fishit"))()
+        end
+    })
+    
+    -- Violence District
+    local vdSection = OtherScriptsTab:Section({
+        Title = "Violence District Script | Tidak Di Perjual Belikan",
+        Icon = "bot",
+        Opened = false
+    })
+    
+    vdSection:Button({
+        Title = "MarV Violence District",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://marvscript.my.id/rawku.php?file=Jason/marvd"))()
+        end
+    })
+    
+    vdSection:Button({
+        Title = "Vinz Prem Violence District",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/VinzVD.txt"))()
+        end
+    })
+    
+    vdSection:Button({
+        Title = "717 Prem Violence District",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/717skillissue/717vd"))()
+        end
+    })
+    
+    vdSection:Button({
+        Title = "Toasty Violence District",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/nouralddin-abdullah/Airlines/refs/heads/main/violence-district.lua"))()
+        end
+    })
+    
+    -- Hangout Scripts
+    local hangoutSection = OtherScriptsTab:Section({
+        Title = "Hangout Script | Tidak Di Perjual Belikan",
+        Icon = "webhook",
+        Opened = false
+    })
+    
+    hangoutSection:Button({
+        Title = "[PC] indo Voice",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/indovoice"))()
+        end
+    })
+    
+    hangoutSection:Button({
+        Title = "Indo Hangout | Auto Fish",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://pastefy.app/NSlP3WqG/raw"))()
+        end
+    })
+    
+    -- Forge Scripts
+    local forgeSection = OtherScriptsTab:Section({
+        Title = "Forge Script | Tidak Di Perjual Belikan",
+        Icon = "ghost",
+        Opened = false
+    })
+    
+    forgeSection:Button({
+        Title = "Toasty Forge Script",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/Toasty/forge.lua"))()
+        end
+    })
+    
+    forgeSection:Button({
+        Title = "Rock Hub Premium Forge",
+        Icon = "file",
+        Callback = function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/itwasabraham/skill-issue/refs/heads/main/RockH/ForgeRock"))()
+        end
+    })
+end
+
+-- ==================== COPY AVATAR TAB ====================
+local function setupCopyAvatarTab()
+    local CopyAvatarTab = Window:Tab({
+        Title = "Copy Avatar",
+        Icon = "sparkles"
+    })
+    
+    local avatarSection = CopyAvatarTab:Section({
+        Title = "MarV Script | Copy Avatar",
+        TextXAlignment = "Left",
+        TextSize = 17,
+        Opened = true
+    })
+    
+    local avatarInfo = avatarSection:Paragraph({
+        Title = "Tidak ada player yang dipilih",
+        Desc = "Informasi player akan muncul di sini",
+        Buttons = {}
+    })
+    
+    local selectedPlayer = nil
+    
+    local function updateAvatarInfo(player)
+        if avatarInfo then avatarInfo:Destroy() end
+        
+        if not player then
+            avatarInfo = avatarSection:Paragraph({
+                Title = "No player selected",
+                Desc = "Pilih player dari dropdown",
+                Buttons = {
+                    {
+                        Icon = "rotate-ccw",
+                        Title = "Reset Avatar",
+                        Callback = function()
+                            -- Reset avatar function
+                        end
+                    }
+                }
+            })
+            return
+        end
+        
+        selectedPlayer = player
+        local userId = player.UserId
+        
+        local function getAvatarThumbnail()
+            local success, url = pcall(function()
+                return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+            end)
+            return success and url or "https://www.roblox.com/headshot-thumbnail/image?userId=" .. userId .. "&width=150&height=150&format=png"
+        end
+        
+        avatarInfo = avatarSection:Paragraph({
+            Title = "User: " .. player.Name .. "\nNick: " .. player.DisplayName .. "\nID: " .. userId,
+            Desc = "Player targeted",
+            Image = getAvatarThumbnail(),
+            ImageSize = 80,
+            Buttons = {
+                {
+                    Icon = "user",
+                    Title = "Copy Avatar",
+                    Callback = function()
+                        -- Copy avatar function
+                        WindUI:Notify({
+                            Title = "Copy Avatar",
+                            Content = "Menyalin avatar dari " .. player.Name,
+                            Duration = 3,
+                            Icon = "sparkles"
+                        })
+                    end
+                },
+                {
+                    Icon = "rotate-ccw",
+                    Title = "Reset Avatar",
+                    Callback = function()
+                        -- Reset avatar function
+                    end
+                }
+            }
+        })
+    end
+    
+    local function getPlayerList()
+        local players = {"None"}
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                table.insert(players, player.Name)
+            end
+        end
+        return players
+    end
+    
+    CopyAvatarTab:Divider()
+    
+    local playerDropdown = CopyAvatarTab:Dropdown({
+        Title = "◉ SELECT PLAYER",
+        Values = getPlayerList(),
+        Value = "None",
+        SearchBarEnabled = true,
+        Callback = function(value)
+            if value == "None" then
+                updateAvatarInfo(nil)
+            else
+                updateAvatarInfo(Players:FindFirstChild(value))
+            end
+        end
+    })
+    
+    CopyAvatarTab:Button({
+        Title = "◉ REFRESH PLAYER LIST",
+        Icon = "refresh-cw",
+        Callback = function()
+            playerDropdown:Refresh(getPlayerList())
+            WindUI:Notify({
+                Title = "Refreshed",
+                Content = "Daftar player diperbarui!",
+                Duration = 2,
+                Icon = "check"
+            })
+        end
+    })
+    
+    CopyAvatarTab:Divider()
+    
+    Players.PlayerAdded:Connect(function()
+        task.delay(2, function()
+            playerDropdown:Refresh(getPlayerList())
+        end)
+    end)
+    
+    Players.PlayerRemoving:Connect(function(player)
+        task.delay(1, function()
+            playerDropdown:Refresh(getPlayerList())
+            if selectedPlayer == player then
+                updateAvatarInfo(nil)
+                playerDropdown:Select("None")
+            end
+        end)
+    end)
+end
+
+-- ==================== ANIMATION TAB ====================
+local function setupAnimationTab()
+    local AnimationTab = Window:Tab({
+        Title = "Animation",
+        Icon = "person-standing"
+    })
+    
+    local lastSelectedAnim = {
+        Idle = "Original",
+        Walk = "Original",
+        Run = "Original",
+        Jump = "Original"
+    }
+    
+    local originalAnimIds = {
+        Idle = {},
+        Walk = "",
+        Run = "",
+        Jump = ""
+    }
+    
+    local function getOriginalAnimations()
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local animate = char:FindFirstChild("Animate")
+        if not animate then return end
+        
+        if animate:FindFirstChild("idle") then
+            originalAnimIds.Idle = {}
+            for _, anim in pairs(animate.idle:GetChildren()) do
+                if anim:IsA("Animation") then
+                    table.insert(originalAnimIds.Idle, anim.AnimationId)
+                end
+            end
+        end
+        
+        if animate:FindFirstChild("walk") then
+            originalAnimIds.Walk = animate.walk.WalkAnim.AnimationId
+        end
+        
+        if animate:FindFirstChild("run") then
+            originalAnimIds.Run = animate.run.RunAnim.AnimationId
+        end
+        
+        if animate:FindFirstChild("jump") then
+            originalAnimIds.Jump = animate.jump.JumpAnim.AnimationId
+        end
+    end
+    
+    local function resetAnimations()
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local animate = char:FindFirstChild("Animate")
+        if not animate then return end
+        
+        if animate:FindFirstChild("idle") then
+            for i, anim in pairs(animate.idle:GetChildren()) do
+                if anim:IsA("Animation") and originalAnimIds.Idle[i] then
+                    anim.AnimationId = originalAnimIds.Idle[i]
+                end
+            end
+        end
+        
+        if animate:FindFirstChild("walk") then
+            animate.walk.WalkAnim.AnimationId = originalAnimIds.Walk
+        end
+        
+        if animate:FindFirstChild("run") then
+            animate.run.RunAnim.AnimationId = originalAnimIds.Run
+        end
+        
+        if animate:FindFirstChild("jump") then
+            animate.jump.JumpAnim.AnimationId = originalAnimIds.Jump
+        end
+        
+        for state, anim in pairs(lastSelectedAnim) do
+            lastSelectedAnim[state] = "Original"
+        end
+    end
+    
+    local function applyAnimation(animType, animId)
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local animate = char:FindFirstChild("Animate")
+        if not animate then return end
+        
+        if animType == "Idle" then
+            local idleContainer = animate:FindFirstChild("idle")
+            if idleContainer then
+                for i, anim in pairs(idleContainer:GetChildren()) do
+                    if anim:IsA("Animation") and animId[i] then
+                        anim.AnimationId = "rbxassetid://" .. animId[i]
+                    end
+                end
+            end
+        elseif animType == "Walk" then
+            if animate:FindFirstChild("walk") then
+                animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+            end
+        elseif animType == "Run" then
+            if animate:FindFirstChild("run") then
+                animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
+            end
+        elseif animType == "Jump" then
+            if animate:FindFirstChild("jump") then
+                animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+            end
+        end
+        
+        lastSelectedAnim[animType] = animId
+    end
+    
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        getOriginalAnimations()
+        
+        for state, anim in pairs(lastSelectedAnim) do
+            if anim ~= "Original" then
+                task.wait(0.2)
+                applyAnimation(state, anim)
+            end
+        end
+    end)
+    
+    task.spawn(function()
+        if LocalPlayer.Character then
+            getOriginalAnimations()
+        end
+    end)
+    
+    AnimationTab:Section({
+        Title = "MarV Script | Emot Menu"
+    })
+    AnimationTab:Divider()
+    
+    AnimationTab:Paragraph({
+        Title = "Emot Menu",
+        Desc = "Pada emot menu ini fitur tambahan yang dimana kalian bisa menggunakan emot secara free, script emot ini dibuat oleh: Vexro Emots"
+    })
+    
+    AnimationTab:Toggle({
+        Title = "◉ OPEN EMOT MENU",
+        Icon = "smile",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            if state then
+                WindUI:Notify({
+                    Title = "Emot Menu",
+                    Content = "Tunggu sebentar...",
+                    Duration = 5,
+                    Icon = "smile"
+                })
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/zyrovell/Vexro-Emotes/main/vexroemotes.lua"))()
+            end
+        end
+    })
+    
+    AnimationTab:Divider()
+    
+    AnimationTab:Section({
+        Title = "MarV Script | Animation"
+    })
+    AnimationTab:Divider()
+    
+    AnimationTab:Paragraph({
+        Title = "Animation Preset",
+        Desc = "Pada animation preset ini anda tidak perlu mencari id animation, tinggal anda sesuaikan saja."
+    })
+    
+    -- Animation presets
+    local idlePresets = {
+        Original = "Original",
+        ["Adidas Community"] = {"122257458498464", "102357151005774"},
+        Vampire = {"1083445855", "1083450166"},
+        ["Wicked (Popular)"] = {"118832222982049", "76049494037641"},
+        NFL = {"92080889861410", "74451233229259"},
+        Astronaut = {"891621366", "891633237"},
+        Bubbly = {"910004836", "910009958"},
+        Cartoony = {"742637544", "742638445"},
+        Elder = {"845397899", "845400520"},
+        Knight = {"657595757", "657568135"},
+        Levitation = {"616006778", "616008087"},
+        Mage = {"707742142", "707855907"},
+        Ninja = {"656117400", "656118341"},
+        Pirate = {"750781874", "750782770"},
+        Robot = {"616088211", "616089559"},
+        Rthro = {"2510197257", "2510196951"},
+        Stylish = {"616136790", "616138447"},
+        Superhero = {"616111295", "616113536"},
+        Toy = {"782841498", "782845736"},
+        Werewolf = {"1083195517", "1083214717"},
+        Zombie = {"616158929", "616160636"}
+    }
+    
+    local walkPresets = {
+        Original = "Original",
+        ["Adidas Community"] = "122150855457006",
+        ["Sports (Adidas)"] = "18537392113",
+        ["Wicked (Popular)"] = "92072849924640",
+        Astronaut = "891636393",
+        Bubbly = "910034870",
+        Cartoony = "742640026",
+        Elder = "845403856",
+        Knight = "657552124",
+        Levitation = "616013216",
+        Mage = "707897309",
+        Ninja = "656121766",
+        Pirate = "750785693",
+        Robot = "616095330",
+        Rthro = "2510202577",
+        Stylish = "616146177",
+        Superhero = "616122287",
+        Toy = "782843345",
+        Vampire = "1083473930",
+        Werewolf = "1083178339",
+        Zombie = "616168032"
+    }
+    
+    local runPresets = {
+        Original = "Original",
+        ["Adidas Community"] = "82598234841035",
+        ["Sports (Adidas)"] = "18537384940",
+        ["Wicked (Popular)"] = "72301599441680",
+        Astronaut = "891636393",
+        Bubbly = "910025107",
+        Cartoony = "742638842",
+        Elder = "845386501",
+        Knight = "657564596",
+        Levitation = "616010382",
+        Mage = "707861613",
+        Ninja = "656118852",
+        Pirate = "750783738",
+        Robot = "616091570",
+        Rthro = "2510198475",
+        Stylish = "616140816",
+        Superhero = "616117076",
+        Toy = "782842708",
+        Vampire = "1083462077",
+        Werewolf = "1083216690",
+        Zombie = "616163682"
+    }
+    
+    local jumpPresets = {
+        Original = "Original",
+        ["Adidas Community"] = "75290611992385",
+        ["Sports (Adidas)"] = "18537380791",
+        ["Wicked (Popular)"] = "104325245285198",
+        Astronaut = "891627522",
+        Bubbly = "910016857",
+        Cartoony = "742637942",
+        Elder = "845398858",
+        Knight = "658409194",
+        Levitation = "616008936",
+        Mage = "707853694",
+        Ninja = "656117878",
+        Pirate = "750782230",
+        Robot = "616090535",
+        Rthro = "2510197830",
+        Stylish = "616139451",
+        Superhero = "616115533",
+        Toy = "782847020",
+        Vampire = "1083455352",
+        Werewolf = "1083218792",
+        Zombie = "616161997"
+    }
+    
+    local function createAnimationDropdown(title, presets, animType)
+        AnimationTab:Dropdown({
+            Title = "◉ " .. title,
+            Values = function()
+                local values = {"Original"}
+                for name in pairs(presets) do
+                    if name ~= "Original" then
+                        table.insert(values, name)
+                    end
+                end
+                table.sort(values)
+                return values
+            end,
+            Value = "Original",
+            SearchBarEnabled = true,
+            Callback = function(value)
+                if value == "Original" then
+                    resetAnimations()
+                else
+                    applyAnimation(animType, presets[value])
+                end
+            end
+        })
+    end
+    
+    createAnimationDropdown("Idle Animation", idlePresets, "Idle")
+    createAnimationDropdown("Walk Animation", walkPresets, "Walk")
+    createAnimationDropdown("Run Animation", runPresets, "Run")
+    createAnimationDropdown("Jump Animation", jumpPresets, "Jump")
+    
+    AnimationTab:Divider()
+    
+    AnimationTab:Section({
+        Title = "MarV Script | Custom Animation"
+    })
+    
+    AnimationTab:Paragraph({
+        Title = "Custom Animation",
+        Desc = "Buat yang anda bingung nyari id animation nya, anda bisa salin link website di bawah ini dan paste di browser kalian."
+    })
+    
+    AnimationTab:Button({
+        Title = "◉ COPY LINK WEBSITE",
+        Icon = "clipboard",
+        Callback = function()
+            if setclipboard then
+                setclipboard("https://id.pinterest.com/ideas/roblox-animation-id-codes/927157409080/")
+                WindUI:Notify({
+                    Title = "Copied!",
+                    Content = "Link website telah disalin!",
+                    Duration = 2,
+                    Icon = "clipboard"
+                })
+            end
+        end
+    })
+    
+    AnimationTab:Divider()
+    
+    local customIdle = ""
+    local customWalk = ""
+    local customRun = ""
+    local customJump = ""
+    
+    local function parseAnimId(input)
+        if not input or input == "" then return nil end
+        local id = input:gsub("rbxassetid://", ""):gsub("%s+", "")
+        if id:match("^%d+$") then
+            return id
+        end
+        return nil
+    end
+    
+    AnimationTab:Input({
+        Title = "◉ Idle Animation",
+        Type = "Input",
+        InputIcon = "person-standing",
+        Placeholder = "Masukan ID",
+        Callback = function(value)
+            local id = parseAnimId(value)
+            if id then
+                customIdle = id
+                WindUI:Notify({
+                    Title = "Idle",
+                    Content = "ID tersimpan!",
+                    Duration = 2,
+                    Icon = "check"
+                })
+            else
+                customIdle = ""
+            end
+        end
+    })
+    
+    AnimationTab:Input({
+        Title = "◉ Walk Animation",
+        Type = "Input",
+        InputIcon = "person-standing",
+        Placeholder = "Masukan ID",
+        Callback = function(value)
+            local id = parseAnimId(value)
+            if id then
+                customWalk = id
+            else
+                customWalk = ""
+            end
+        end
+    })
+    
+    AnimationTab:Input({
+        Title = "◉ Run Animation",
+        Type = "Input",
+        InputIcon = "person-standing",
+        Placeholder = "Masukan ID",
+        Callback = function(value)
+            local id = parseAnimId(value)
+            if id then
+                customRun = id
+            else
+                customRun = ""
+            end
+        end
+    })
+    
+    AnimationTab:Input({
+        Title = "◉ Jump Animation",
+        Type = "Input",
+        InputIcon = "person-standing",
+        Placeholder = "Masukan ID",
+        Callback = function(value)
+            local id = parseAnimId(value)
+            if id then
+                customJump = id
+            else
+                customJump = ""
+            end
+        end
+    })
+    
+    AnimationTab:Divider()
+    
+    AnimationTab:Toggle({
+        Title = "◉ APPLY ANIMATION",
+        Callback = function(state)
+            if state then
+                local applied = false
+                if customIdle ~= "" then
+                    applyAnimation("Idle", {customIdle, customIdle})
+                    applied = true
+                end
+                if customWalk ~= "" then
+                    applyAnimation("Walk", customWalk)
+                    applied = true
+                end
+                if customRun ~= "" then
+                    applyAnimation("Run", customRun)
+                    applied = true
+                end
+                if customJump ~= "" then
+                    applyAnimation("Jump", customJump)
+                    applied = true
+                end
+                
+                if applied then
+                    WindUI:Notify({
+                        Title = "Animation",
+                        Content = "Animation berhasil di ubah!",
+                        Duration = 3,
+                        Icon = "person-standing"
+                    })
+                else
+                    WindUI:Notify({
+                        Title = "Animation",
+                        Content = "Tidak ada animation!",
+                        Duration = 3,
+                        Icon = "triangle-alert"
+                    })
+                end
+            else
+                resetAnimations()
+                WindUI:Notify({
+                    Title = "Animation",
+                    Content = "Animation dikembalikan ke original!",
+                    Duration = 3,
+                    Icon = "person-standing"
+                })
+            end
+        end
+    })
+end
+
+-- ==================== SKYBOX TAB ====================
+local function setupSkyboxTab()
+    local SkyboxTab = Window:Tab({
+        Title = "Skybox",
+        Icon = "cloud-sun"
+    })
+    
+    SkyboxTab:Section({
+        Title = "MarV Script | Skybox"
+    })
+    SkyboxTab:Divider()
+    
+    SkyboxTab:Paragraph({
+        Title = "Skybox Menu",
+        Desc = "Berfungsi untuk mengganti tampilan langit (Skybox) di dalam game. Dengan fitur ini, kamu dapat mengubah background langit menjadi lebih keren, gelap, terang, atau sesuai tema yang kamu inginkan."
+    })
+    
+    local function applySkybox(skyData)
+        -- Remove existing sky
+        for _, child in pairs(Lighting:GetChildren()) do
+            if child:IsA("Sky") then
+                child:Destroy()
+            end
+        end
+        
+        local sky = Instance.new("Sky")
+        sky.Name = "CustomSky"
+        sky.SkyboxBk = skyData.bk
+        sky.SkyboxDn = skyData.dn
+        sky.SkyboxFt = skyData.ft
+        sky.SkyboxLf = skyData.lf
+        sky.SkyboxRt = skyData.rt
+        sky.SkyboxUp = skyData.up
+        sky.Parent = Lighting
+    end
+    
+    local function resetSkybox()
+        for _, child in pairs(Lighting:GetChildren()) do
+            if child:IsA("Sky") then
+                child:Destroy()
+            end
+        end
+        Lighting.TimeOfDay = "14:00:00"
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = true
+        Lighting.Technology = Enum.Technology.ShadowMap
+        Lighting.FogEnd = 100000
+        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+        Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+    end
+    
+    local skyboxes = {
+        {name = "Skybox Mount Velora 🌑", bk = "rbxassetid://126146408999925", dn = "rbxassetid://118112392224589", ft = "rbxassetid://121253817183621", lf = "rbxassetid://134105463289425", rt = "rbxassetid://89099449712918", up = "rbxassetid://138429250948648"},
+        {name = "Skybox Mount Nanhu 🛸", bk = "rbxassetid://16262356578", dn = "rbxassetid://16262358026", ft = "rbxassetid://16262360469", lf = "rbxassetid://16262362003", rt = "rbxassetid://16262363873", up = "rbxassetid://16262366016"},
+        {name = "Skybox Pink 🌷", bk = "rbxassetid://271042516", dn = "rbxassetid://271077243", ft = "rbxassetid://271042556", lf = "rbxassetid://271042310", rt = "rbxassetid://271042467", up = "rbxassetid://271077958"},
+        {name = "Skybox Madara 🔥", bk = "rbxassetid://15493709538", dn = "rbxassetid://15493710499", ft = "rbxassetid://15493711616", lf = "rbxassetid://15493712720", rt = "rbxassetid://15493713902", up = "rbxassetid://15493714708"},
+        {name = "Skybox Space Sky 1 🚀", bk = "rbxassetid://159454299", dn = "rbxassetid://159454296", ft = "rbxassetid://159454293", lf = "rbxassetid://159454286", rt = "rbxassetid://159454300", up = "rbxassetid://159454288"},
+        {name = "Skybox Space Sky 2 🚀", bk = "rbxassetid://15983968922", dn = "rbxassetid://15983966825", ft = "rbxassetid://15983965025", lf = "rbxassetid://15983967420", rt = "rbxassetid://15983966246", up = "rbxassetid://15983964246"}
+    }
+    
+    for _, sky in ipairs(skyboxes) do
+        SkyboxTab:Toggle({
+            Title = "◉ " .. sky.name,
+            Callback = function(state)
+                if state then
+                    applySkybox(sky)
+                    WindUI:Notify({
+                        Title = "Skybox Applied",
+                        Content = sky.name .. " activated!",
+                        Duration = 3,
+                        Icon = "cloud"
+                    })
+                else
+                    resetSkybox()
+                    WindUI:Notify({
+                        Title = "Skybox Reset",
+                        Content = "Skybox dikembalikan ke normal!",
+                        Duration = 3,
+                        Icon = "refresh-ccw"
+                    })
+                end
+            end
+        })
+    end
+    
+    SkyboxTab:Divider()
+    
+    SkyboxTab:Paragraph({
+        Title = "Weather Menu",
+        Desc = "Berfungsi untuk mengatur cuaca mulai dari menambahkan hujan, salju, sunset dll."
+    })
+    
+    local weatherEffects = {}
+    
+    local function clearWeatherEffects()
+        for _, effect in pairs(weatherEffects) do
+            if effect and effect.Parent then
+                effect:Destroy()
+            end
+        end
+        weatherEffects = {}
+    end
+    
+    SkyboxTab:Toggle({
+        Title = "◉ Clear Day ☀️",
+        Callback = function(state)
+            if state then
+                clearWeatherEffects()
+                Lighting.TimeOfDay = "12:00:00"
+                Lighting.Brightness = 2
+                Lighting.FogEnd = 8000
+                WindUI:Notify({
+                    Title = "Weather Applied",
+                    Content = "Clear Day activated!",
+                    Duration = 3,
+                    Icon = "sun"
+                })
+            else
+                resetSkybox()
+                WindUI:Notify({
+                    Title = "Weather Reset",
+                    Content = "Weather dikembalikan ke normal!",
+                    Duration = 3,
+                    Icon = "refresh-ccw"
+                })
+            end
+        end
+    })
+    
+    SkyboxTab:Toggle({
+        Title = "◉ Moonlight 🌙",
+        Callback = function(state)
+            if state then
+                clearWeatherEffects()
+                Lighting.TimeOfDay = "23:00:00"
+                Lighting.Brightness = 0.3
+                WindUI:Notify({
+                    Title = "Weather Applied",
+                    Content = "Moonlight activated!",
+                    Duration = 3,
+                    Icon = "moon"
+                })
+            else
+                resetSkybox()
+            end
+        end
+    })
+    
+    SkyboxTab:Toggle({
+        Title = "◉ Sunrise 🌅",
+        Callback = function(state)
+            if state then
+                clearWeatherEffects()
+                Lighting.TimeOfDay = "06:30:00"
+                Lighting.Brightness = 2
+                WindUI:Notify({
+                    Title = "Weather Applied",
+                    Content = "Sunrise activated!",
+                    Duration = 3,
+                    Icon = "sunrise"
+                })
+            else
+                resetSkybox()
+            end
+        end
+    })
+    
+    SkyboxTab:Divider()
+    
+    SkyboxTab:Button({
+        Title = "◉ Reset Lighting",
+        Desc = "Kembalikan pencahayaan ke default.",
+        Icon = "refresh-ccw",
+        Callback = function()
+            WindUI:Notify({
+                Title = "Resetting...",
+                Content = "Mengembalikan lighting...",
+                Duration = 2,
+                Icon = "loader"
+            })
+            task.wait(0.5)
+            resetSkybox()
+            task.wait(0.3)
+            WindUI:Notify({
+                Title = "Reset Complete",
+                Content = "Lighting berhasil dikembalikan!",
+                Duration = 3,
+                Icon = "check"
+            })
+        end
+    })
+end
+
+-- ==================== PLAYER MENU TAB ====================
+local function setupPlayerMenuTab()
+    local PlayerMenuTab = Window:Tab({
+        Title = "Player Menu",
+        Icon = "user-cog"
+    })
+    
+    local hideNametag = false
+    local walkSpeedEnabled = false
+    local walkSpeedValue = 16
+    local lockTime = false
+    local lockTimeValue = 12
+    local walkSpeedConnection = nil
+    local timeLockConnection = nil
+    
+    -- Nametag Section
+    PlayerMenuTab:Section({
+        Title = "Nametag Menu",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    
+    local function updateNametagVisibility()
+        for _, player in pairs(Players:GetPlayers()) do
+            local char = player.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    for _, gui in pairs(head:GetChildren()) do
+                        if gui:IsA("BillboardGui") then
+                            gui.Enabled = not hideNametag
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    PlayerMenuTab:Toggle({
+        Title = "Hide Nametag",
+        Desc = "Berfungsi untuk menyembunyikan nametag player di semua map.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            hideNametag = state
+            updateNametagVisibility()
+            
+            if state then
+                Players.PlayerAdded:Connect(function(player)
+                    player.CharacterAdded:Connect(function(char)
+                        task.wait(0.5)
+                        local head = char:FindFirstChild("Head")
+                        if head then
+                            for _, gui in pairs(head:GetChildren()) do
+                                if gui:IsA("BillboardGui") then
+                                    gui.Enabled = false
+                                end
+                            end
+                        end
+                    end)
+                end)
+            end
+        end
+    })
+    
+    -- Walk Speed Section
+    PlayerMenuTab:Section({
+        Title = "Walk Speed Menu",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    
+    PlayerMenuTab:Toggle({
+        Title = "Enable Walk Speed",
+        Desc = "Aktifkan enable walk speed terlebih dahulu sebelum set walk speed.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            walkSpeedEnabled = state
+            if state and currentHumanoid then
+                currentHumanoid.WalkSpeed = walkSpeedValue
+                if not walkSpeedConnection then
+                    walkSpeedConnection = currentHumanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                        if walkSpeedEnabled and currentHumanoid.WalkSpeed ~= walkSpeedValue then
+                            currentHumanoid.WalkSpeed = walkSpeedValue
+                        end
+                    end)
+                end
+            elseif walkSpeedConnection then
+                walkSpeedConnection:Disconnect()
+                walkSpeedConnection = nil
+            end
+        end
+    })
+    
+    PlayerMenuTab:Slider({
+        Title = "Set Walk Speed",
+        Desc = "Berfungsi mengatur kecepatan player.",
+        Step = 1,
+        Value = {
+            Min = 16,
+            Max = 65,
+            Default = 16
+        },
+        Callback = function(value)
+            walkSpeedValue = value
+            if walkSpeedEnabled and currentHumanoid then
+                currentHumanoid.WalkSpeed = value
+            end
+        end
+    })
+    
+    -- Time Menu Section
+    PlayerMenuTab:Section({
+        Title = "Time Menu",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    
+    PlayerMenuTab:Toggle({
+        Title = "Lock Time",
+        Desc = "Kunci waktu agar server tidak bisa mengubahnya.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            lockTime = state
+            if state then
+                Lighting.TimeOfDay = string.format("%02d:00:00", math.floor(lockTimeValue))
+                if not timeLockConnection then
+                    timeLockConnection = Lighting:GetPropertyChangedSignal("TimeOfDay"):Connect(function()
+                        if lockTime then
+                            Lighting.TimeOfDay = string.format("%02d:00:00", math.floor(lockTimeValue))
+                        end
+                    end)
+                end
+            elseif timeLockConnection then
+                timeLockConnection:Disconnect()
+                timeLockConnection = nil
+            end
+        end
+    })
+    
+    PlayerMenuTab:Slider({
+        Title = "Set Time",
+        Desc = "Atur waktu siang, sore, malam.",
+        Step = 1,
+        Value = {
+            Min = 0,
+            Max = 24,
+            Default = 12
+        },
+        Callback = function(value)
+            lockTimeValue = value
+            Lighting.TimeOfDay = string.format("%02d:00:00", math.floor(value))
+            if lockTime then
+                Lighting.TimeOfDay = string.format("%02d:00:00", math.floor(value))
+            end
+        end
+    })
+    
+    -- Character reset handler
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        currentCharacter = char
+        currentHumanoid = char:FindFirstChild("Humanoid")
+        currentRootPart = char:FindFirstChild("HumanoidRootPart")
+        
+        if walkSpeedEnabled and currentHumanoid then
+            currentHumanoid.WalkSpeed = walkSpeedValue
+            if walkSpeedConnection then
+                walkSpeedConnection:Disconnect()
+            end
+            walkSpeedConnection = currentHumanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if walkSpeedEnabled and currentHumanoid.WalkSpeed ~= walkSpeedValue then
+                    currentHumanoid.WalkSpeed = walkSpeedValue
+                end
+            end)
+        end
+        
+        if hideNametag then
+            task.wait(0.5)
+            updateNametagVisibility()
+        end
+    end)
+end
+
+-- ==================== SOCIAL MEDIA TAB ====================
+local function setupSocialMediaTab()
+    local SocialMediaTab = Window:Tab({
+        Title = "Social Media",
+        Icon = "link"
+    })
+    
+    SocialMediaTab:Section({
+        Title = "MarV | Social Media"
+    })
+    SocialMediaTab:Divider()
+    
+    SocialMediaTab:Paragraph({
+        Title = "Discord",
+        Desc = "Join discord untuk mendapatkan update terbaru."
+    })
+    
+    SocialMediaTab:Button({
+        Title = "◉ Copy Link Discord",
+        Icon = "clipboard",
+        Callback = function()
+            if setclipboard then
+                setclipboard("https://marvscript.my.id")
+                WindUI:Notify({
+                    Title = "Link Discord",
+                    Content = "Berhasil di copy ke clipboard!",
+                    Duration = 3,
+                    Icon = "clipboard"
+                })
+            end
+        end
+    })
+    
+    SocialMediaTab:Divider()
+    
+    SocialMediaTab:Paragraph({
+        Title = "Whatsapp Group",
+        Desc = "Buat yang mau Join silahkan hehe."
+    })
+    
+    SocialMediaTab:Button({
+        Title = "◉ Copy Link Whatsapp Group",
+        Icon = "clipboard",
+        Callback = function()
+            if setclipboard then
+                setclipboard("https://chat.whatsapp.com/HY80ILr7wyu4f4Lc96qr8E?mode=hqrt3")
+                WindUI:Notify({
+                    Title = "Link Group Whatsapp",
+                    Content = "Berhasil di copy ke clipboard!",
+                    Duration = 3,
+                    Icon = "clipboard"
+                })
+            end
+        end
+    })
+    
+    SocialMediaTab:Divider()
+    
+    SocialMediaTab:Paragraph({
+        Title = "Tiktok",
+        Desc = "Jangan lupa follow tiktok MarV."
+    })
+    
+    SocialMediaTab:Button({
+        Title = "◉ Copy Link Tiktok",
+        Icon = "clipboard",
+        Callback = function()
+            if setclipboard then
+                setclipboard("https://www.tiktok.com/@notbrian77")
+                WindUI:Notify({
+                    Title = "Link Tiktok",
+                    Content = "Berhasil di copy ke clipboard!",
+                    Duration = 3,
+                    Icon = "clipboard"
+                })
+            end
+        end
+    })
+    
+    SocialMediaTab:Divider()
+    
+    SocialMediaTab:Paragraph({
+        Title = "Website",
+        Desc = "Buat yang mau mampir website saya silahkan."
+    })
+    
+    SocialMediaTab:Button({
+        Title = "◉ Copy Link Website",
+        Icon = "clipboard",
+        Callback = function()
+            if setclipboard then
+                setclipboard("https://marv.my.id")
+                WindUI:Notify({
+                    Title = "Link Website",
+                    Content = "Berhasil di copy ke clipboard!",
+                    Duration = 3,
+                    Icon = "clipboard"
+                })
+            end
+        end
+    })
+    
+    SocialMediaTab:Divider()
+end
+
+-- ==================== THEMES UI TAB ====================
+local function setupThemesUITab()
+    local ThemesUITab = Window:Tab({
+        Title = "Themes UI",
+        Icon = "palette"
+    })
+    
+    ThemesUITab:Section({
+        Title = "MarV Script | Themes UI"
+    })
+    ThemesUITab:Divider()
+    
+    ThemesUITab:Paragraph({
+        Title = "Themes UI",
+        Desc = "Berfungsi untuk menyesuaikan tema ui, yang dimana anda bisa mengatur tema red, dark, white dll, tinggal anda sesuaikan saja."
+    })
+    ThemesUITab:Divider()
+    
+    local themes = WindUI:GetThemes()
+    local themeNames = {}
+    for name in pairs(themes) do
+        table.insert(themeNames, name)
+    end
+    table.sort(themeNames)
+    
+    ThemesUITab:Dropdown({
+        Title = "◉ Preset Themes",
+        Values = themeNames,
+        Flag = "themeDropdown",
+        SearchBarEnabled = true,
+        MenuWidth = 280,
+        Value = "Midnight",
+        Callback = function(value)
+            WindUI:SetTheme(value)
+        end
+    })
+    
+    ThemesUITab:Slider({
+        Title = "◉ Transparency Themes",
+        Value = {
+            Min = 0,
+            Max = 1,
+            Default = 0.3
+        },
+        Flag = "transparencySlider",
+        Step = 0.1,
+        Callback = function(value)
+            Window:SetBackgroundTransparency(value)
+            Window:SetBackgroundImageTransparency(value)
+        end
+    })
+    
+    ThemesUITab:Divider()
+end
+
+-- ==================== UPDATE CHECKPOINT TAB ====================
+local function setupUpdateCheckpointTab()
+    local UpdateCheckpointTab = Window:Tab({
+        Title = "Update Checkpoint",
+        Icon = "file"
+    })
+    
+    UpdateCheckpointTab:Section({
+        Title = "MarV Script | Update Checkpoint",
+        TextTransparency = 0.05,
+        TextXAlignment = "Left",
+        TextSize = 17
+    })
+    UpdateCheckpointTab:Divider()
+    
+    UpdateCheckpointTab:Paragraph({
+        Title = "Update Checkpoint",
+        Desc = "Berfungsi untuk mengupdate ulang semua checkpoint dari track yang sudah dipilih. Pastikan Anda sudah memilih track di menu Auto Walk terlebih dahulu."
+    })
+    UpdateCheckpointTab:Divider()
+    
+    local isUpdating = false
+    local shouldStop = false
+    
+    UpdateCheckpointTab:Toggle({
+        Title = "◉ UPDATE CHECKPOINT",
+        Desc = "Berfungsi untuk mengupdate ulang semua checkpoint dari track yang dipilih.",
+        Icon = "check",
+        Type = "Checkbox",
+        Value = false,
+        Callback = function(state)
+            if not state then
+                shouldStop = true
+                isUpdating = false
+                return
+            end
+            
+            local trackName = getgenv().AutoWalk_CurrentTrack
+            local trackFolder = getgenv().AutoWalk_CurrentJsonFolder
+            local trackUrl = getgenv().AutoWalk_CurrentBaseURL
+            local trackFiles = getgenv().AutoWalk_CurrentJsonFiles
+            
+            if not trackName then
+                WindUI:Notify({
+                    Title = "Error",
+                    Content = "Pilih track terlebih dahulu di menu Auto Walk!",
+                    Duration = 3,
+                    Icon = "alert-triangle"
+                })
+                return
+            end
+            
+            isUpdating = true
+            shouldStop = false
+            
+            task.spawn(function()
+                WindUI:Notify({
+                    Title = "Update Checkpoint",
+                    Content = "Memulai proses update untuk " .. trackName .. "...",
+                    Duration = 2,
+                    Icon = "refresh-cw"
+                })
+                
+                -- Delete existing files
+                for _, file in ipairs(trackFiles) do
+                    local filePath = trackFolder .. "/" .. file
+                    if isfile(filePath) then
+                        delfile(filePath)
+                    end
+                end
+                
+                local successCount = 0
+                local failCount = 0
+                
+                for i, file in ipairs(trackFiles) do
+                    if shouldStop then
+                        WindUI:Notify({
+                            Title = "Update Checkpoint",
+                            Content = "Update dibatalkan!",
+                            Duration = 3,
+                            Icon = "x-circle"
+                        })
+                        return
+                    end
+                    
+                    if i % 10 == 0 or i == #trackFiles then
+                        WindUI:Notify({
+                            Title = "Update Checkpoint",
+                            Content = string.format("Progress: %d/%d", i, #trackFiles),
+                            Duration = 1.5,
+                            Icon = "download"
+                        })
+                    end
+                    
+                    local success, content = pcall(function()
+                        return game:HttpGet(trackUrl .. file)
+                    end)
+                    
+                    if success and content and #content > 0 then
+                        writefile(trackFolder .. "/" .. file, content)
+                        successCount = successCount + 1
+                    else
+                        failCount = failCount + 1
+                    end
+                    
+                    task.wait(0.3)
+                end
+                
+                if not shouldStop then
+                    WindUI:Notify({
+                        Title = "Update Selesai",
+                        Content = string.format("Berhasil: %d | Gagal: %d", successCount, failCount),
+                        Duration = 5,
+                        Icon = "check-check"
+                    })
+                end
+                
+                isUpdating = false
+            end)
+        end
+    })
+    
+    UpdateCheckpointTab:Divider()
+end
+
+-- ==================== LOGOUT TAB ====================
+local function setupLogoutTab()
+    local LogoutTab = Window:Tab({
+        Title = "Logout",
+        Icon = "log-out"
+    })
+    
+    LogoutTab:Section({
+        Title = "MarV Script | Logout"
+    })
+    LogoutTab:Divider()
+    
+    LogoutTab:Paragraph({
+        Title = "Logout Menu",
+        Desc = "Berfungsi untuk keluar dari akun Anda. Setelah logout, Menu akan tertutup secara otomatis."
+    })
+    LogoutTab:Divider()
+    
+    LogoutTab:Toggle({
+        Title = "◉ Logout Sekarang",
+        Callback = function(state)
+            if state then
+                WindUI:Notify({
+                    Title = "Tunggu Sebentar",
+                    Content = "Sedang proses logout!",
+                    Duration = 3,
+                    Icon = "log-out"
+                })
+                task.wait(3)
+                Window:Destroy()
+            end
+        end
+    })
+    
+    LogoutTab:Divider()
+end
+
+-- ==================== AUTH TAB SETUP ====================
+local function setupAuthTab()
+    AuthTab:Section({
+        Title = "MarV Script | Key System"
+    })
+    AuthTab:Divider()
+    
+    AuthTab:Paragraph({
+        Title = "Information",
+        Desc = "Untuk mengakses kamu membutuhkan key, silakan masukkan key/token yang telah anda dapat dari bot. Jika Anda belum memiliki key/token, Anda dapat mengambilnya terlebih dahulu melalui server Discord kami: https://marvscript.my.id"
+    })
+    AuthTab:Divider()
+    
+    local keyInput = ""
+    AuthTab:Input({
+        Title = "◉ Input Key",
+        Type = "Input",
+        InputIcon = "key",
+        Placeholder = "Masukan key",
+        Callback = function(value)
+            keyInput = value and value:gsub("%s+", ""):gsub("[\n\r\t]", "") or ""
+        end
+    })
+    
+    AuthTab:Button({
+        Title = "◉ Verify Key",
+        Icon = "shield-check",
+        Callback = function()
+            if keyInput and keyInput ~= "" then
+                doLogin(keyInput)
+            else
+                WindUI:Notify({
+                    Title = "Error!",
+                    Content = "Masukan key terlebih dahulu!",
+                    Duration = 3,
+                    Icon = "triangle-alert"
+                })
+            end
+        end
+    })
+    
+    AuthTab:Divider()
+    
+    AuthTab:Paragraph({
+        Title = "Butuh Bantuan?",
+        Desc = "Jika mengalami masalah seperti: \n• Key tidak bisa di pakai \n• Script error atau lainnya \n• Silahkan bergabung di discord: https://marvscript.my.id"
+    })
+end
+
+-- ==================== AUTO LOGIN ====================
+local function doLogin(inputKey)
+    if isAuthenticated then
+        WindUI:Notify({
+            Title = "Tunggu!",
+            Content = "Masih dalam proses validasi...",
+            Duration = 2,
+            Icon = "loader"
+        })
+        return
+    end
+    
+    if not inputKey or inputKey == "" then
+        WindUI:Notify({
+            Title = "Error",
+            Content = "Key tidak boleh kosong!",
+            Duration = 3,
+            Icon = "triangle-alert"
+        })
+        return
+    end
+    
+    isAuthenticated = true
+    
+    WindUI:Notify({
+        Title = "Validating...",
+        Content = "Pengecekan token dengan username: " .. PlayerName,
+        Duration = 2,
+        Icon = "shield-check"
+    })
+    
+    local success, data = validateToken(inputKey)
+    isAuthenticated = false
+    
+    if success then
+        WindUI:Notify({
+            Title = "Key Valid!",
+            Content = "Authentication berhasil!",
+            Duration = 3,
+            Icon = "check-check"
+        })
+        
+        saveToken(inputKey)
+        getgenv().UserToken = inputKey
+        getgenv().AuthComplete = true
+        getgenv().AuthTimestamp = os.time()
+        
+        task.wait(0.5)
+        
+        local userSuccess, userDataResult = getUserInfo(inputKey)
+        if userSuccess then
+            updateUserData(userDataResult)
+        end
+        
+        task.wait(0.5)
+        
+        -- Setup all tabs after successful login
+        setupAccountTab()
+        setupCreditsTab()
+        setupBypassTab()
+        setupOtherScriptsTab()
+        setupAutoWalkTab()
+        setupCopyAvatarTab()
+        setupAnimationTab()
+        setupSkyboxTab()
+        setupPlayerMenuTab()
+        setupSocialMediaTab()
+        setupThemesUITab()
+        setupUpdateCheckpointTab()
+        setupLogoutTab()
+        isLoggedIn = true
+        
+        WindUI:Notify({
+            Title = "Welcome!",
+            Content = "Menu utama telah terbuka. Selamat menggunakan MarV Script!",
+            Duration = 3,
+            Icon = "sparkles"
+        })
+    else
+        WindUI:Notify({
+            Title = "Key Salah!",
+            Content = tostring(data),
+            Duration = 5,
+            Icon = "ban"
+        })
+    end
+end
+
+-- ==================== INITIALIZE ====================
+setupAuthTab()
+
+task.spawn(function()
+    task.wait(0.5)
+    local savedToken = loadSavedToken()
+    if savedToken and tostring(savedToken) ~= "" and #tostring(savedToken) >= 5 then
+        WindUI:Notify({
+            Title = "Auto Login",
+            Content = "Mencoba login dengan saved token...",
+            Duration = 2,
+            Icon = "key-round"
+        })
+        
+        local success, data = validateToken(savedToken)
+        if success then
+            getgenv().UserToken = savedToken
+            getgenv().AuthComplete = true
+            getgenv().AuthTimestamp = os.time()
+            
+            WindUI:Notify({
+                Title = "Auto Login Success!",
+                Content = "Welcome back! Mengambil data user...",
+                Duration = 3,
+                Icon = "check-check"
+            })
+            
+            task.wait(0.5)
+            
+            local userSuccess, userDataResult = getUserInfo(savedToken)
+            if userSuccess then
+                updateUserData(userDataResult)
+            end
+            
+            task.wait(0.5)
+            
+            setupAccountTab()
+            setupCreditsTab()
+            setupBypassTab()
+            setupOtherScriptsTab()
+            setupAutoWalkTab()
+            setupCopyAvatarTab()
+            setupAnimationTab()
+            setupSkyboxTab()
+            setupPlayerMenuTab()
+            setupSocialMediaTab()
+            setupThemesUITab()
+            setupUpdateCheckpointTab()
+            setupLogoutTab()
+            isLoggedIn = true
+        else
+            deleteToken()
+            WindUI:Notify({
+                Title = "Auto Login Failed",
+                Content = "Saved token expired atau invalid. Silakan login manual.",
+                Duration = 4,
+                Icon = "alert-triangle"
+            })
+        end
+    end
+end)
+
+print("✅ MarV Script Loaded Successfully!")
+WindUI:Notify({
+    Title = "MarV Script",
+    Content = "Script loaded successfully!\nJoin Discord: marvscript.my.id",
+    Duration = 5,
+    Icon = "sparkles"
+})
